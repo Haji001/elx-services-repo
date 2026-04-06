@@ -1,0 +1,79 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
+
+  --color-primary: #1c4a36;
+  --color-secondary: #1c4a36;
+  --color-accent: #e3f9b8;
+  --color-background: #faf7f0;
+  
+  --color-success: #10b981;
+  --color-error: #ef4444;
+
+  --shadow-soft: 0 4px 20px rgba(28, 74, 54, 0.05);
+  --shadow-medium: 0 10px 30px rgba(28, 74, 54, 0.1);
+}
+
+@layer base {
+  body {
+    @apply bg-background text-secondary font-sans antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold tracking-tight text-primary;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply relative inline-flex items-center justify-between bg-accent text-primary border border-primary rounded-full pl-8 pr-2 py-2 font-bold transition-all hover:bg-primary hover:text-accent hover:border-accent hover:scale-[1.02] hover:-translate-y-1 hover:font-extrabold active:scale-[0.98] shadow-soft;
+  }
+
+  .btn-primary:hover .btn-icon-circle {
+    @apply bg-accent text-primary;
+  }
+
+  .btn-outline {
+    @apply relative inline-flex items-center justify-between bg-white text-primary border border-primary rounded-full pl-8 pr-2 py-2 font-bold transition-all hover:bg-primary hover:text-white hover:border-white hover:-translate-y-1 hover:font-extrabold active:scale-[0.98];
+  }
+
+  .btn-outline:hover .btn-icon-circle {
+    @apply bg-white text-primary;
+  }
+
+  .btn-icon-circle {
+    @apply w-10 h-10 bg-primary text-accent rounded-full flex items-center justify-center ml-4 shrink-0 transition-colors;
+  }
+
+  .btn-outline .btn-icon-circle {
+    @apply text-white;
+  }
+
+  .section-padding {
+    @apply py-24 px-6 md:px-12 lg:px-24;
+  }
+
+  .card {
+    @apply bg-white border border-gray-100 rounded-3xl p-8 shadow-soft transition-all hover:shadow-medium;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-50;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-primary/30 rounded-full hover:bg-primary/50;
+}
+
+/* Smooth scroll */
+html {
+  scroll-behavior: smooth;
+}
