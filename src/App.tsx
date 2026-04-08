@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import { 
   Menu, 
   X, 
@@ -18,9 +18,160 @@ import {
   Clock,
   ThumbsUp,
   ChevronsRight,
-  MapPin
+  MapPin,
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { db, auth } from './firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+
+// --- Firebase Error Handling ---
+
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+// --- Error Boundary ---
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false, error: null };
+  
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let errorMessage = "Something went wrong.";
+      try {
+        const parsed = JSON.parse(this.state.error?.message || "");
+        if (parsed.error && parsed.error.includes("insufficient permissions")) {
+          errorMessage = "You don't have permission to perform this action. Please check your security rules.";
+        }
+      } catch (e) {
+        // Not a JSON error
+      }
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
+          <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center">
+            <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-6" />
+            <h2 className="text-2xl font-bold text-secondary mb-4">Application Error</h2>
+            <p className="text-secondary/60 mb-8 leading-relaxed">
+              {errorMessage}
+            </p>
+            <button 
+              onClick={() => window.location.reload()}
+              className="btn-primary w-full py-3 flex justify-center"
+            >
+              <span>Reload Application</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (this as any).props.children;
+  }
+}
+
+// --- Firebase Provider ---
+
+const FirebaseProvider = ({ children }: { children: ReactNode }) => {
+  const [isAuthReady, setIsAuthReady] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        // Sign in anonymously if not already signed in
+        signInAnonymously(auth).catch(err => {
+          console.error("Anonymous sign-in failed", err);
+          // Don't block the app if auth fails, just log it
+          setIsAuthReady(true);
+        });
+      } else {
+        setIsAuthReady(true);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-10 h-10 text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+};
 
 // --- Components ---
 
@@ -89,7 +240,7 @@ const TESTIMONIALS: Testimonial[] = [
     id: '1',
     name: 'Michael B.',
     role: 'Project Manager',
-    content: 'ELX Services handled our post-construction cleanup for a 50-unit complex. Their attention to detail was incredible. The site was spotless.',
+    content: 'ELX Services and Supply handled our post-construction cleanup for a 50-unit complex. Their attention to detail was incredible. The site was spotless.',
     rating: 5
   },
   {
@@ -735,6 +886,40 @@ const FAQ = () => {
 };
 
 const Contact = () => {
+  const [formData, setFormData] = useState({
+    fullName: '',
+    phoneNumber: '',
+    service: 'Select your required services'
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState<'idle' | 'success' | 'error'>('idle');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (formData.service === 'Select your required services') {
+      alert("Please select a service.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setSubmitStatus('idle');
+
+    const path = 'leads';
+    try {
+      await addDoc(collection(db, path), {
+        ...formData,
+        createdAt: serverTimestamp()
+      });
+      setSubmitStatus('success');
+      setFormData({ fullName: '', phoneNumber: '', service: 'Select your required services' });
+    } catch (error) {
+      setSubmitStatus('error');
+      handleFirestoreError(error, OperationType.WRITE, path);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <section id="contact" className="section-padding bg-background">
       <div className="max-w-7xl mx-auto grid md:grid-cols-2 gap-16">
@@ -761,7 +946,7 @@ const Contact = () => {
               </div>
               <div>
                 <h4 className="font-bold text-secondary mb-1">Email Us</h4>
-                <p className="text-secondary/60">hello@elxservices.com</p>
+                <p className="text-secondary/60">hello@elxservices-and-supply.com</p>
               </div>
             </div>
           </div>
@@ -775,11 +960,14 @@ const Contact = () => {
             Our professional cleaning teams deliver fast, reliable, and affordable services tailored to your needs.
           </p>
           
-          <form className="space-y-6">
+          <form className="space-y-6" onSubmit={handleSubmit}>
             <div className="space-y-2">
               <label className="text-xs font-bold text-white/60 uppercase tracking-widest">Full Name</label>
               <input 
                 type="text" 
+                required
+                value={formData.fullName}
+                onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
                 placeholder="Enter your name" 
                 className="w-full px-5 py-4 rounded-2xl bg-white/10 border border-white/20 text-white placeholder:text-white/30 focus:bg-white/20 focus:border-accent outline-none transition-all" 
               />
@@ -789,6 +977,9 @@ const Contact = () => {
               <label className="text-xs font-bold text-white/60 uppercase tracking-widest">Phone Number</label>
               <input 
                 type="tel" 
+                required
+                value={formData.phoneNumber}
+                onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
                 placeholder="Phone Number" 
                 className="w-full px-5 py-4 rounded-2xl bg-white/10 border border-white/20 text-white placeholder:text-white/30 focus:bg-white/20 focus:border-accent outline-none transition-all" 
               />
@@ -796,7 +987,12 @@ const Contact = () => {
             
             <div className="space-y-2">
               <label className="text-xs font-bold text-white/60 uppercase tracking-widest">Required Service</label>
-              <select className="w-full px-5 py-4 rounded-2xl bg-white/10 border border-white/20 text-white focus:bg-white/20 focus:border-accent outline-none transition-all appearance-none cursor-pointer">
+              <select 
+                required
+                value={formData.service}
+                onChange={(e) => setFormData({ ...formData, service: e.target.value })}
+                className="w-full px-5 py-4 rounded-2xl bg-white/10 border border-white/20 text-white focus:bg-white/20 focus:border-accent outline-none transition-all appearance-none cursor-pointer"
+              >
                 <option className="bg-primary">Select your required services</option>
                 <option className="bg-primary">Post-Construction Cleaning</option>
                 <option className="bg-primary">Janitorial Services</option>
@@ -804,12 +1000,27 @@ const Contact = () => {
               </select>
             </div>
             
-            <button type="submit" className="btn-primary w-full py-2 flex justify-center mt-4">
-              <span>Schedule A Service</span>
+            <button 
+              type="submit" 
+              disabled={isSubmitting}
+              className="btn-primary w-full py-2 flex justify-center mt-4 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span>{isSubmitting ? 'Sending...' : 'Schedule A Service'}</span>
               <div className="btn-icon-circle">
-                <ChevronsRight className="w-5 h-5" />
+                {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <ChevronsRight className="w-5 h-5" />}
               </div>
             </button>
+
+            {submitStatus === 'success' && (
+              <p className="text-accent text-sm font-bold text-center mt-4">
+                Thank you! We'll get back to you shortly.
+              </p>
+            )}
+            {submitStatus === 'error' && (
+              <p className="text-red-400 text-sm font-bold text-center mt-4">
+                Something went wrong. Please try again later.
+              </p>
+            )}
           </form>
         </div>
       </div>
@@ -876,7 +1087,7 @@ const Footer = () => {
               </li>
               <li className="flex items-center gap-3 group">
                 <Mail className="w-4 h-4 text-accent transition-colors" />
-                <a href="mailto:hello@elxservices.com" className="hover:text-accent transition-colors">hello@elxservices.com</a>
+                <a href="mailto:hello@elxservices-and-supply.com" className="hover:text-accent transition-colors">hello@elxservices-and-supply.com</a>
               </li>
             </ul>
           </div>
@@ -899,18 +1110,22 @@ const Footer = () => {
 
 export default function App() {
   return (
-    <div className="min-h-screen">
-      <Navbar />
-      <main>
-        <Hero />
-        <About />
-        <Services />
-        <Benefits />
-        <Reviews />
-        <FAQ />
-        <Contact />
-      </main>
-      <Footer />
-    </div>
+    <ErrorBoundary>
+      <FirebaseProvider>
+        <div className="min-h-screen">
+          <Navbar />
+          <main>
+            <Hero />
+            <About />
+            <Services />
+            <Benefits />
+            <Reviews />
+            <FAQ />
+            <Contact />
+          </main>
+          <Footer />
+        </div>
+      </FirebaseProvider>
+    </ErrorBoundary>
   );
 }

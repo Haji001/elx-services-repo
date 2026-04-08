@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /leads/{leadId} {
+      allow create: if (request.auth != null) && 
+                      (request.resource.data.fullName is string) && 
+                      (request.resource.data.fullName.size() > 0) &&
+                      (request.resource.data.fullName.size() < 200) &&
+                      (request.resource.data.phoneNumber is string) && 
+                      (request.resource.data.phoneNumber.size() > 0) &&
+                      (request.resource.data.phoneNumber.size() < 50) &&
+                      (request.resource.data['service'] is string) &&
+                      (request.resource.data.createdAt == request.time);
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

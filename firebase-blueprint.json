@@ -1,0 +1,35 @@
+{
+  "entities": {
+    "Lead": {
+      "title": "Lead",
+      "description": "A potential customer who submitted the contact form.",
+      "type": "object",
+      "properties": {
+        "fullName": {
+          "type": "string",
+          "description": "The full name of the potential customer."
+        },
+        "phoneNumber": {
+          "type": "string",
+          "description": "The phone number of the potential customer."
+        },
+        "service": {
+          "type": "string",
+          "description": "The service the customer is interested in."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The timestamp when the lead was created."
+        }
+      },
+      "required": ["fullName", "phoneNumber", "service", "createdAt"]
+    }
+  },
+  "firestore": {
+    "leads/{leadId}": {
+      "schema": "Lead",
+      "description": "Collection of leads from the contact form."
+    }
+  }
+}
